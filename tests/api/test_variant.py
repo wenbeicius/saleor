@@ -3,6 +3,7 @@ from uuid import uuid4
 import graphene
 import pytest
 
+from saleor.product.error_codes import ProductErrorCode
 from saleor.product.models import Attribute, ProductVariant
 from tests.api.utils import get_graphql_content
 
@@ -565,12 +566,13 @@ def test_fetch_unpublished_variant_anonymous_user(
 
 PRODUCT_VARIANT_BULK_CREATE_MUTATION = """
     mutation ProductVariantBulkCreate(
-        $input: [ProductVariantBulkCreateInput]!, $productId: ID!
+        $variants: [ProductVariantBulkCreateInput]!, $productId: ID!
     ) {
-        productVariantBulkCreate(input: $input, product: $productId) {
-            errors {
+        productVariantBulkCreate(variants: $variants, product: $productId) {
+            productErrors {
                 field
                 message
+                code
             }
             count
         }
@@ -585,7 +587,7 @@ def test_product_variant_bulk_create_by_attribute_slug(
     attribut_value_count = size_attribute.values.count()
     product_id = graphene.Node.to_global_id("Product", product.pk)
     attribut_value = size_attribute.values.last()
-    mutation_input = [
+    variants = [
         {
             "sku": str(uuid4())[:12],
             "quantity": 1000,
@@ -599,14 +601,14 @@ def test_product_variant_bulk_create_by_attribute_slug(
         }
     ]
 
-    variables = {"productId": product_id, "input": mutation_input}
+    variables = {"productId": product_id, "variants": variants}
     staff_api_client.user.user_permissions.add(permission_manage_products)
     response = staff_api_client.post_graphql(
         PRODUCT_VARIANT_BULK_CREATE_MUTATION, variables
     )
     content = get_graphql_content(response)
     data = content["data"]["productVariantBulkCreate"]
-    assert not data["errors"]
+    assert not data["productErrors"]
     assert data["count"] == 1
     assert product_varinat_count + 1 == ProductVariant.objects.count()
     assert attribut_value_count == size_attribute.values.count()
@@ -620,7 +622,7 @@ def test_product_variant_bulk_create_by_attribute_id(
     product_id = graphene.Node.to_global_id("Product", product.pk)
     attribut_id = graphene.Node.to_global_id("Attribute", size_attribute.pk)
     attribut_value = size_attribute.values.last()
-    mutation_input = [
+    variants = [
         {
             "sku": str(uuid4())[:12],
             "quantity": 1000,
@@ -632,14 +634,14 @@ def test_product_variant_bulk_create_by_attribute_id(
         }
     ]
 
-    variables = {"productId": product_id, "input": mutation_input}
+    variables = {"productId": product_id, "variants": variants}
     staff_api_client.user.user_permissions.add(permission_manage_products)
     response = staff_api_client.post_graphql(
         PRODUCT_VARIANT_BULK_CREATE_MUTATION, variables
     )
     content = get_graphql_content(response)
     data = content["data"]["productVariantBulkCreate"]
-    assert not data["errors"]
+    assert not data["productErrors"]
     assert data["count"] == 1
     assert product_varinat_count + 1 == ProductVariant.objects.count()
     assert attribut_value_count == size_attribute.values.count()
@@ -652,7 +654,7 @@ def test_product_variant_bulk_create_with_new_attribute_value(
     attribut_value_count = size_attribute.values.count()
     product_id = graphene.Node.to_global_id("Product", product.pk)
     attribut_value = size_attribute.values.last()
-    mutation_input = [
+    variants = [
         {
             "sku": str(uuid4())[:12],
             "attributes": [
@@ -665,14 +667,14 @@ def test_product_variant_bulk_create_with_new_attribute_value(
         },
     ]
 
-    variables = {"productId": product_id, "input": mutation_input}
+    variables = {"productId": product_id, "variants": variants}
     staff_api_client.user.user_permissions.add(permission_manage_products)
     response = staff_api_client.post_graphql(
         PRODUCT_VARIANT_BULK_CREATE_MUTATION, variables
     )
     content = get_graphql_content(response)
     data = content["data"]["productVariantBulkCreate"]
-    assert not data["errors"]
+    assert not data["productErrors"]
     assert data["count"] == 2
     assert product_varinat_count + 2 == ProductVariant.objects.count()
     assert attribut_value_count + 1 == size_attribute.values.count()
@@ -683,7 +685,7 @@ def test_product_variant_bulk_create_negative_quantity(
 ):
     product_varinat_count = ProductVariant.objects.count()
     product_id = graphene.Node.to_global_id("Product", product.pk)
-    mutation_input = [
+    variants = [
         {
             "sku": str(uuid4())[:12],
             "quantity": -1000,
@@ -696,7 +698,7 @@ def test_product_variant_bulk_create_negative_quantity(
         },
     ]
 
-    variables = {"productId": product_id, "input": mutation_input}
+    variables = {"productId": product_id, "variants": variants}
     staff_api_client.user.user_permissions.add(permission_manage_products)
     response = staff_api_client.post_graphql(
         PRODUCT_VARIANT_BULK_CREATE_MUTATION, variables
@@ -704,8 +706,8 @@ def test_product_variant_bulk_create_negative_quantity(
     content = get_graphql_content(response)
     data = content["data"]["productVariantBulkCreate"]
     # TODO Refactor errors
-    assert data["errors"]
-    assert len(data["errors"]) == 1
+    assert len(data["productErrors"]) == 1
+    assert data["productErrors"][0]["code"] == ProductErrorCode.INVALID.name
     assert product_varinat_count == ProductVariant.objects.count()
 
 
@@ -715,14 +717,14 @@ def test_product_variant_bulk_create_duplicated_sku(
     product_varinat_count = ProductVariant.objects.count()
     product_id = graphene.Node.to_global_id("Product", product.pk)
     sku = product.variants.first().sku
-    mutation_input = [
+    variants = [
         {
             "sku": sku,
             "attributes": [{"slug": size_attribute.slug, "values": ["Test-value"]}],
         }
     ]
 
-    variables = {"productId": product_id, "input": mutation_input}
+    variables = {"productId": product_id, "variants": variants}
     staff_api_client.user.user_permissions.add(permission_manage_products)
     response = staff_api_client.post_graphql(
         PRODUCT_VARIANT_BULK_CREATE_MUTATION, variables
@@ -730,8 +732,8 @@ def test_product_variant_bulk_create_duplicated_sku(
     content = get_graphql_content(response)
     data = content["data"]["productVariantBulkCreate"]
     # TODO Refactor errors
-    assert data["errors"]
-    assert len(data["errors"]) == 1
+    assert len(data["productErrors"]) == 1
+    assert data["productErrors"][0]["code"] == ProductErrorCode.UNIQUE.name
     assert product_varinat_count == ProductVariant.objects.count()
 
 
@@ -741,7 +743,7 @@ def test_product_variant_bulk_create_duplicated_sku_in_input(
     product_varinat_count = ProductVariant.objects.count()
     product_id = graphene.Node.to_global_id("Product", product.pk)
     sku = str(uuid4())[:12]
-    mutation_input = [
+    variants = [
         {
             "sku": sku,
             "attributes": [{"slug": size_attribute.slug, "values": ["Test-value"]}],
@@ -752,7 +754,7 @@ def test_product_variant_bulk_create_duplicated_sku_in_input(
         },
     ]
 
-    variables = {"productId": product_id, "input": mutation_input}
+    variables = {"productId": product_id, "variants": variants}
     staff_api_client.user.user_permissions.add(permission_manage_products)
     response = staff_api_client.post_graphql(
         PRODUCT_VARIANT_BULK_CREATE_MUTATION, variables
@@ -760,8 +762,8 @@ def test_product_variant_bulk_create_duplicated_sku_in_input(
     content = get_graphql_content(response)
     data = content["data"]["productVariantBulkCreate"]
     # TODO Refactor errors
-    assert data["errors"]
-    assert len(data["errors"]) == 1
+    assert len(data["productErrors"]) == 1
+    assert data["productErrors"][0]["code"] == ProductErrorCode.UNIQUE.name
     assert product_varinat_count == ProductVariant.objects.count()
 
 
@@ -773,7 +775,7 @@ def test_product_variant_bulk_create_invalid_attribute_slug(
     )
     product_varinat_count = ProductVariant.objects.count()
     product_id = graphene.Node.to_global_id("Product", product.pk)
-    mutation_input = [
+    variants = [
         {
             "sku": str(uuid4())[:12],
             "attributes": [{"slug": "invalid", "values": ["Test-value"]}],
@@ -784,7 +786,7 @@ def test_product_variant_bulk_create_invalid_attribute_slug(
         },
     ]
 
-    variables = {"productId": product_id, "input": mutation_input}
+    variables = {"productId": product_id, "variants": variants}
     staff_api_client.user.user_permissions.add(permission_manage_products)
     response = staff_api_client.post_graphql(
         PRODUCT_VARIANT_BULK_CREATE_MUTATION, variables
@@ -792,8 +794,9 @@ def test_product_variant_bulk_create_invalid_attribute_slug(
     content = get_graphql_content(response)
     data = content["data"]["productVariantBulkCreate"]
     # TODO Refactor errors
-    assert data["errors"]
-    assert len(data["errors"]) == 2
+    assert len(data["productErrors"]) == 2
+    assert data["productErrors"][0]["code"] == ProductErrorCode.NOT_FOUND.name
+    assert data["productErrors"][1]["code"] == ProductErrorCode.NOT_FOUND.name
     assert product_varinat_count == ProductVariant.objects.count()
 
 
@@ -803,7 +806,7 @@ def test_product_variant_bulk_create_many_errors(
     product_varinat_count = ProductVariant.objects.count()
     product_id = graphene.Node.to_global_id("Product", product.pk)
     sku = product.variants.first().sku
-    mutation_input = [
+    variants = [
         {
             "sku": str(uuid4())[:12],
             "quantity": -1000,
@@ -826,14 +829,15 @@ def test_product_variant_bulk_create_many_errors(
         },
     ]
 
-    variables = {"productId": product_id, "input": mutation_input}
+    variables = {"productId": product_id, "variants": variants}
     staff_api_client.user.user_permissions.add(permission_manage_products)
     response = staff_api_client.post_graphql(
         PRODUCT_VARIANT_BULK_CREATE_MUTATION, variables
     )
     content = get_graphql_content(response)
     data = content["data"]["productVariantBulkCreate"]
-    # TODO Refactor errors
-    assert data["errors"]
-    assert len(data["errors"]) == 3
+    assert len(data["productErrors"]) == 3
+    assert data["productErrors"][0]["code"] == ProductErrorCode.INVALID.name
+    assert data["productErrors"][1]["code"] == ProductErrorCode.UNIQUE.name
+    assert data["productErrors"][2]["code"] == ProductErrorCode.NOT_FOUND.name
     assert product_varinat_count == ProductVariant.objects.count()
